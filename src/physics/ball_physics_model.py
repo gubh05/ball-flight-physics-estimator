@@ -124,8 +124,8 @@ class BallPhysicsModel:
             if step % sample_interval == 0:
                 # Aerodynamic accelerations only (no gravity) — what IMU reads
                 aero = self._derivatives(state, spin_rad_s)
-                ax_imu = aero[2] + self.params.gravity   # remove gravity term added in _derivatives
-                ay_imu = aero[3] + self.params.gravity
+                ax_imu = aero[2]                          # drag_ax + magnus_ax (x has no gravity)
+                ay_imu = aero[3] + self.params.gravity   # remove gravity term added in _derivatives
 
                 t_list.append(t)
                 x_list.append(x)
