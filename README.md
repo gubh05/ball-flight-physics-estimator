@@ -152,14 +152,12 @@ Benchmark on 200 held-out test trajectories at three noise levels (σ multiplier
 
 | Estimator | Noise σ | Speed MAE (m/s) | Angle MAE (°) | Spin MAE (rpm) | Speed RMSE | Angle RMSE | Spin RMSE |
 |-----------|---------|----------------|--------------|---------------|-----------|-----------|---------|
-| PhysicsEstimator | 0.5 | 3.493 | 20.300 | **0.020** | 3.881 | 22.220 | 0.025 |
-| NNEstimator      | 0.5 | **0.562** | **1.245** | 79.168 | **0.726** | **2.989** | 109.452 |
-| PhysicsEstimator | 1.0 | 3.494 | 20.333 | **0.038** | 3.881 | 22.284 | 0.048 |
-| NNEstimator      | 1.0 | **0.554** | **1.263** | 79.120 | **0.723** | **3.034** | 109.315 |
-| PhysicsEstimator | 2.0 | 3.495 | 20.293 | **0.076** | 3.884 | 22.218 | 0.095 |
-| NNEstimator      | 2.0 | **0.565** | **1.266** | 79.245 | **0.728** | **3.160** | 109.493 |
-
-> **Note:** these results were produced with the original spin range of ±3000 rpm, which is unrealistic for soccer. The spin range has since been corrected to ±1000 rpm. Results will be updated after the next pipeline run.
+| PhysicsEstimator | 0.5 | 3.415 | 21.369 | **0.020** | 3.816 | 22.950 | 0.025 |
+| NNEstimator      | 0.5 | **0.515** | **1.624** | 25.730 | **0.726** | **2.465** | 36.454 |
+| PhysicsEstimator | 1.0 | 3.416 | 21.366 | **0.039** | 3.817 | 22.957 | 0.050 |
+| NNEstimator      | 1.0 | **0.522** | **1.659** | 25.775 | **0.729** | **2.511** | 36.483 |
+| PhysicsEstimator | 2.0 | 3.407 | 21.344 | **0.079** | 3.815 | 22.955 | 0.099 |
+| NNEstimator      | 2.0 | **0.547** | **1.695** | 25.803 | **0.760** | **2.573** | 36.204 |
 
 ---
 
