@@ -23,10 +23,10 @@ This phase starts at **Step 15**.
 
 ## Step Status
 
-- [x] Step 15 — Config: add `partial_traj_min`, `partial_traj_max`, `mc_dropout_passes`
-- [x] Step 16 — DatasetGenerator: partial trajectory truncation in `generate()`
-- [x] Step 17 — NNEstimator: add `predict_with_uncertainty()` (MC Dropout)
-- [x] Step 18 — Visualization: add `plot_uncertainty_bands()`
+- [x] Step 15 — Config: add `partial_traj_min`, `partial_traj_max`, `mc_dropout_passes` (committed: `822c33d`)
+- [x] Step 16 — DatasetGenerator: partial trajectory truncation in `generate()` (committed: `455d04d`)
+- [x] Step 17 — NNEstimator: add `predict_with_uncertainty()` (MC Dropout) (committed: `50adec7`)
+- [x] Step 18 — Visualization: add `plot_uncertainty_bands()` (committed: `1dc4881`)
 - [ ] Step 19 — Wire up `run_pipeline.py` + rewrite README
 
 ---
