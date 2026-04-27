@@ -15,8 +15,8 @@ class Config:
     speed_max: float = 35.0
     angle_min: float = 5.0
     angle_max: float = 60.0
-    spin_min: float = -3000.0
-    spin_max: float = 3000.0
+    spin_min: float = -1000.0
+    spin_max: float = 1000.0
 
     # Partial trajectory (fraction of IMU signal revealed at generation time)
     partial_traj_min: float = 0.3   # minimum fraction of timesteps revealed

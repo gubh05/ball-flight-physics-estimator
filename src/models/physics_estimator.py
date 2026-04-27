@@ -90,7 +90,7 @@ class PhysicsEstimator:
         spin_rpm = mean_gyro_rad_s * 60.0 / (2 * math.pi)
 
         # Clamp to valid range
-        spin_rpm = float(np.clip(spin_rpm, -3000.0, 3000.0))
+        spin_rpm = float(np.clip(spin_rpm, -1000.0, 1000.0))
 
         logger.debug(
             "PhysicsEstimator: speed=%.2f angle=%.2f spin=%.1f",

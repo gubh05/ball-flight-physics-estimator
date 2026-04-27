@@ -159,6 +159,8 @@ Benchmark on 200 held-out test trajectories at three noise levels (σ multiplier
 | PhysicsEstimator | 2.0 | 3.495 | 20.293 | **0.076** | 3.884 | 22.218 | 0.095 |
 | NNEstimator      | 2.0 | **0.565** | **1.266** | 79.245 | **0.728** | **3.160** | 109.493 |
 
+> **Note:** these results were produced with the original spin range of ±3000 rpm, which is unrealistic for soccer. The spin range has since been corrected to ±1000 rpm. Results will be updated after the next pipeline run.
+
 ---
 
 ## Key Insights
