@@ -18,10 +18,15 @@ class Config:
     spin_min: float = -3000.0
     spin_max: float = 3000.0
 
+    # Partial trajectory (fraction of IMU signal revealed at generation time)
+    partial_traj_min: float = 0.3   # minimum fraction of timesteps revealed
+    partial_traj_max: float = 1.0   # maximum fraction (1.0 = full trajectory)
+
     # Training
     epochs: int = 50
     batch_size: int = 128
     learning_rate: float = 1e-3
+    mc_dropout_passes: int = 30     # forward passes for MC Dropout uncertainty
 
     # Paths
     output_dir: Path = Path("outputs/")
