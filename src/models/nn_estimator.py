@@ -166,6 +166,48 @@ class NNEstimator:
         y_norm = np.concatenate(preds, axis=0)
         return y_norm * self._scale + self._shift
 
+    def predict_with_uncertainty(
+        self, X: np.ndarray, n_passes: int = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """MC Dropout uncertainty estimate via multiple stochastic forward passes.
+
+        Keeps dropout active during inference by calling model.train(), then runs
+        n_passes forward passes and aggregates statistics.
+
+        Parameters
+        ----------
+        X        : (N, T, 3) float32 array — same format as predict()
+        n_passes : number of stochastic forward passes (defaults to config value)
+
+        Returns
+        -------
+        mean : (N, 3) denormalised mean predictions  [speed_mps, angle_deg, spin_rpm]
+        std  : (N, 3) denormalised standard deviation (uncertainty)
+        """
+        if n_passes is None:
+            n_passes = self.config.mc_dropout_passes
+
+        X_t = torch.from_numpy(np.ascontiguousarray(X.transpose(0, 2, 1))).to(self.device)
+
+        self._model.train()  # keep dropout active
+        all_preds = []
+        with torch.no_grad():
+            for _ in range(n_passes):
+                batch_preds = []
+                for start in range(0, len(X_t), self.config.batch_size):
+                    xb = X_t[start : start + self.config.batch_size]
+                    batch_preds.append(self._model(xb).cpu().numpy())
+                all_preds.append(np.concatenate(batch_preds, axis=0))
+        self._model.eval()
+
+        stacked = np.stack(all_preds, axis=0)   # (n_passes, N, 3)
+        mean_norm = stacked.mean(axis=0)         # (N, 3)
+        std_norm  = stacked.std(axis=0)          # (N, 3)
+
+        mean = mean_norm * self._scale + self._shift
+        std  = std_norm  * self._scale            # std in physical units
+        return mean, std
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
