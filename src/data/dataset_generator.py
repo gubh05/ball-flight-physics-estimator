@@ -109,9 +109,15 @@ class DatasetGenerator:
             traj = self.physics_model.simulate(speed, angle, spin)
             imu  = self.noise_sim.simulate_imu(traj, noise_level=noise)
 
-            X[i, :, 0] = self._pad_or_truncate(imu.acc_x,  max_ts)
-            X[i, :, 1] = self._pad_or_truncate(imu.acc_y,  max_ts)
-            X[i, :, 2] = self._pad_or_truncate(imu.gyro_z, max_ts)
+            # Partial trajectory: reveal only a random fraction of timesteps.
+            # The remainder is zero-padded, simulating early-observation inference.
+            n_full = len(imu.t)
+            frac = float(rng.uniform(cfg.partial_traj_min, cfg.partial_traj_max))
+            n_reveal = max(1, int(frac * n_full))
+
+            X[i, :, 0] = self._pad_or_truncate(imu.acc_x[:n_reveal],  max_ts)
+            X[i, :, 1] = self._pad_or_truncate(imu.acc_y[:n_reveal],  max_ts)
+            X[i, :, 2] = self._pad_or_truncate(imu.gyro_z[:n_reveal], max_ts)
             y[i] = self._normalise_targets(speed, angle, spin)
 
         logger.info("Generated dataset: X=%s y=%s", X.shape, y.shape)
