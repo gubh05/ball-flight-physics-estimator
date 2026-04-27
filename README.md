@@ -1,54 +1,82 @@
 # Ball Flight Physics Estimator
 
-> **Physics-informed pipeline that simulates football shot trajectories, generates synthetic IMU sensor data, and trains a neural network to invert the physics model — estimating launch speed, angle, and spin from raw sensor readings.**
+> **An inverse problem in sports physics: estimate launch speed, angle, and spin from partial, noisy IMU observations — using a physics-based analytical estimator, a 1D-CNN, and MC Dropout uncertainty quantification.**
 
 ---
 
-## Project Summary
+## Problem Statement
 
-Most ML engineers treat sensor data as black-box inputs. This project demonstrates the rare ability to reason from physics first — understanding *why* sensors read what they read, then using that understanding to build better models.
+A football is kicked. An IMU sensor records acceleration and gyroscope data — but only for a fraction of the flight, and with realistic MEMS noise. Can we recover the initial launch parameters?
 
-The pipeline:
-1. **Simulates** realistic football trajectories using a forward physics model (projectile motion + Magnus effect via RK4 integration)
-2. **Generates** synthetic IMU readings with realistic MEMS noise characteristics (Gaussian white noise, per-shot bias, quantization)
-3. **Trains** a 1D-CNN neural network to invert the physics: estimating shot parameters from raw sensor sequences
-4. **Benchmarks** the ML model against a pure physics-based analytical estimator to reveal where each approach wins
+This is a classic **inverse problem**: the forward model (physics → sensor readings) is well understood; the inverse (sensor readings → physics) is non-trivial because:
 
----
+- The signal is **partial** — we observe a random 30–100% window of the trajectory
+- The signal is **noisy** — additive white noise, per-shot sensor bias, ADC quantization
+- The relationship between acceleration shape and launch parameters is **non-linear**
 
-## Physics Primer
-
-### Projectile Motion
-```
-x(t) = v₀·cos(θ)·t
-y(t) = v₀·sin(θ)·t - ½·g·t²
-```
-
-### Magnus Effect (spin-induced lift)
-A spinning ball curves because spin creates differential air pressure — the *Magnus effect*:
-```
-F_Magnus = ½ · ρ · A · C_L · |v|² · (spin_unit × velocity_unit)
-```
-Where ρ = 1.225 kg/m³, A = π·r² (r=0.11m), C_L = 0.25 (football empirical).
-
-Backspin (positive RPM) → upward lift → longer range.  
-Topspin (negative RPM) → downward force → shorter range.
-
-### Drag Force
-```
-F_drag = -½ · ρ · A · C_D · |v| · v       (C_D ≈ 0.47 for sphere)
-```
-
-### IMU Reading Model
-The accelerometer measures *specific force* (aerodynamic forces only, gravity cancelled in free-fall):
-```
-a_sensor(t) = (F_Magnus + F_drag) / m
-```
-The gyroscope measures the constant spin rate in rad/s.
+The project pits a pure physics-based analytical estimator against a trained neural network, and adds MC Dropout to quantify prediction uncertainty.
 
 ---
 
-## Pipeline Diagram
+## Methods
+
+### 1. Forward Simulation (`src/physics/ball_physics_model.py`)
+
+RK4 integration of projectile motion with drag and Magnus effect:
+
+```
+F_drag   = -½ · ρ · A · C_D · |v| · v          (C_D = 0.47)
+F_Magnus =  ½ · ρ · A · C_L · |v|² · spin_dir  (C_L = 0.25)
+```
+
+The IMU reads aerodynamic specific force only (gravity cancelled in free-fall):
+```
+a_sensor(t) = (F_drag + F_Magnus) / m
+gyro_z(t)   = spin_rad_s  (constant)
+```
+
+### 2. Synthetic Dataset (`src/data/dataset_generator.py`)
+
+10,000 shots sampled uniformly over:
+- Speed: 5–35 m/s · Angle: 5–60° · Spin: −3000 to +3000 rpm
+- Noise level: randomly drawn from {0.5, 1.0, 2.0}σ per shot
+- **Partial trajectory**: each sample reveals a random 30–100% window of the IMU signal; the remainder is zero-padded. This forces models to infer launch parameters from incomplete observations.
+
+### 3. Physics-Based Estimator (`src/models/physics_estimator.py`)
+
+Analytical inverse using the launch-window signal:
+- **Spin**: gyroscope mean → convert rad/s to rpm directly
+- **Angle**: atan2 of initial acceleration direction (drag opposes velocity)
+- **Speed**: peak acceleration magnitude back-calculated via drag + Magnus constants
+
+Simple, fast, interpretable. Sets the baseline.
+
+### 4. Neural Network Estimator (`src/models/nn_estimator.py`)
+
+1D-CNN regression on the full padded IMU sequence (300 timesteps × 3 channels):
+
+```
+Conv1d(3→32, k=7) → BN → ReLU → MaxPool
+Conv1d(32→64, k=5) → BN → ReLU → MaxPool
+Conv1d(64→128, k=3) → BN → ReLU → AdaptiveAvgPool
+Flatten → Linear(128→64) → ReLU → Dropout(0.2) → Linear(64→3)
+```
+
+Trained with Adam + ReduceLROnPlateau, MSE loss on normalised targets.
+
+### 5. Uncertainty Estimation — MC Dropout (`src/models/nn_estimator.py`)
+
+At inference, dropout stays **active** across `N` stochastic forward passes. The spread of predictions across passes gives a per-sample uncertainty estimate:
+
+```
+mean, std = nn_estimator.predict_with_uncertainty(X, n_passes=30)
+```
+
+High `std` → model is uncertain (e.g. very short trajectory window or high noise). This is useful for flagging unreliable predictions in a production system.
+
+---
+
+## Pipeline
 
 ```
 ┌─────────────────────────┐
@@ -61,20 +89,20 @@ The gyroscope measures the constant spin rate in rad/s.
 │  SensorNoiseSimulator   │  MEMS IMU noise model
 │  (traj → IMU readings)  │  white noise + bias + quantization
 └──────────┬──────────────┘
-           │ IMUReading (acc_x, acc_y, gyro_z)
+           │ partial window (30–100% of trajectory)
            ▼
 ┌─────────────────────────┐
 │   DatasetGenerator      │  10,000 shots, zero-padded to 300 timesteps
-│   (IMU → (X, y) pairs)  │  normalised labels [0,1]
+│   (IMU → (X, y) pairs)  │  normalised labels [0,1], train/val/test split
 └──────────┬──────────────┘
            │
      ┌─────┴──────┐
      ▼            ▼
-┌─────────┐  ┌──────────────┐
-│ Physics │  │ NNEstimator  │  1D-CNN regression (PyTorch)
-│Estimator│  │  (trained)   │  Conv × 3 → AdaptiveAvgPool → MLP
-└────┬────┘  └──────┬───────┘
-     └──────┬───────┘
+┌─────────┐  ┌──────────────────────┐
+│ Physics │  │ NNEstimator (1D-CNN) │
+│Estimator│  │ + MC Dropout (σ est) │
+└────┬────┘  └──────────┬───────────┘
+     └──────┬───────────┘
             ▼
      ┌─────────────┐
      │  Benchmarker │  MAE + RMSE per param per noise level
@@ -86,11 +114,10 @@ The gyroscope measures the constant spin rate in rad/s.
 ## Setup
 
 ```bash
-# Create environment (Python 3.11, PyTorch with CUDA)
 conda env create -f environment.yml
 conda activate IOTIS-P
 
-# Or install manually
+# Or manually
 conda create -n IOTIS-P python=3.11 -y
 conda activate IOTIS-P
 pip install -r requirements.txt
@@ -101,24 +128,25 @@ pip install -r requirements.txt
 ## How to Run
 
 ```bash
-# Full end-to-end pipeline (generates data, trains NN, benchmarks, saves plots)
+# Full end-to-end pipeline
 python run_pipeline.py
 
-# Run all tests
+# Run all tests (53 passing)
 pytest tests/ -v
 
 # Explore notebooks
 jupyter notebook notebooks/
 ```
 
-The pipeline:
-- Caches the 10,000-sample dataset to `outputs/dataset_X.npy` / `dataset_y.npy`
-- Saves the best NN checkpoint to `outputs/nn_estimator_best.pt`
-- Saves all plots to `outputs/plots/`
+To regenerate the dataset with partial trajectories (or after changing `Config`):
+```bash
+rm outputs/dataset_X.npy outputs/dataset_y.npy outputs/nn_estimator_best.pt
+python run_pipeline.py
+```
 
 ---
 
-## Results Table
+## Results
 
 Benchmark on 200 held-out test trajectories at three noise levels (σ multiplier):
 
@@ -133,25 +161,17 @@ Benchmark on 200 held-out test trajectories at three noise levels (σ multiplier
 
 ---
 
-## Key Insight
+## Key Insights
 
-**Neither estimator dominates universally — and that's the point.**
+**Neither estimator dominates — and that's the point.**
 
-The **PhysicsEstimator** wins decisively on *spin estimation* (MAE < 0.1 rpm across all noise levels). This is unsurprising: the gyroscope directly measures spin rate, and the physics estimator simply converts rad/s → rpm. No ML required.
+The **PhysicsEstimator** wins decisively on spin (MAE < 0.1 rpm). The gyroscope directly measures spin rate; no ML is needed. Converting rad/s → rpm is exact physics.
 
-The **NNEstimator** wins on *launch speed and angle* by a factor of 6–16×. Speed and angle estimation requires integrating information across the full IMU time-series — the shape of the acceleration curve, its duration, the peak magnitude — a task where learned temporal patterns beat simple analytical heuristics.
+The **NNEstimator** wins on speed and angle by 6–16×. These require integrating information across the full time-series — peak magnitude, curve shape, duration — a task where learned temporal patterns beat analytical heuristics. Critically, the NN's advantage is robust across noise levels (MAE barely changes from σ=0.5 to σ=2.0), suggesting the 1D-CNN learned implicit denoising.
 
-Crucially, the NN's advantage on speed/angle is *robust to noise*: MAE barely changes from σ=0.5 to σ=2.0, suggesting the 1D-CNN learned to denoise the signal implicitly during training.
+**MC Dropout** provides calibrated uncertainty per prediction. Short trajectory windows and high noise inflate `std`, making it practical to flag low-confidence estimates before acting on them.
 
-**Takeaway for hardware companies:** When you know what a sensor measures directly (gyro → spin), use physics. When the relationship is indirect and non-linear (acceleration sequence → launch params), use ML. A production system would use both.
-
----
-
-## Example Trajectory Plot
-
-Generated by `run_pipeline.py` — 3×3 grid showing speed × spin interaction (Magnus effect):
-
-![Trajectory Family](outputs/plots/trajectory_family.png)
+**Takeaway:** When a sensor directly measures what you need, use physics. When the relationship is indirect and non-linear, use ML. A production system would combine both — and know when to say "I'm not sure."
 
 ---
 
@@ -162,20 +182,22 @@ ball-flight-physics-estimator/
 ├── src/
 │   ├── physics/ball_physics_model.py      # Forward simulation (RK4)
 │   ├── sensors/sensor_noise_simulator.py  # IMU noise model
-│   ├── data/dataset_generator.py          # Synthetic dataset builder
+│   ├── data/dataset_generator.py          # Synthetic dataset + partial trajectories
 │   ├── models/
 │   │   ├── physics_estimator.py           # Analytical inverse estimator
-│   │   └── nn_estimator.py                # 1D-CNN (PyTorch)
+│   │   └── nn_estimator.py                # 1D-CNN + MC Dropout uncertainty
 │   ├── evaluation/benchmarker.py          # Head-to-head comparison
 │   └── utils/
 │       ├── config.py                      # Central config dataclass
-│       └── visualization.py              # 6 plot functions
+│       ├── visualization.py               # Plot functions incl. uncertainty bands
+│       └── experiment_logger.py           # Run tracking and artefact logging
 ├── tests/                                 # 53 pytest tests (all passing)
 ├── notebooks/
 │   ├── 01_physics_exploration.ipynb
 │   ├── 02_sensor_data_analysis.ipynb
 │   └── 03_model_comparison.ipynb
 ├── run_pipeline.py                        # End-to-end entry point
+├── BUILD_CONTEXT_project2_ball_physics_estimator.md
 ├── requirements.txt
 └── environment.yml
 ```

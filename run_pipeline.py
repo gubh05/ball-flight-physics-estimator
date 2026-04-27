@@ -2,12 +2,16 @@
 run_pipeline.py — End-to-end pipeline for Ball Flight Physics Estimator.
 
 Steps:
-1. Generate (or load cached) 10,000-sample synthetic dataset
+1. Generate (or load cached) 10,000-sample synthetic dataset with partial trajectories
 2. Split into train / val / test
 3. Train NNEstimator (50 epochs), save best checkpoint
 4. Benchmark PhysicsEstimator vs. NNEstimator on test set at noise levels [0.5, 1.0, 2.0]
 5. Print final results table (MAE + RMSE per parameter per estimator per noise level)
-6. Save all visualisation plots to outputs/plots/
+6. Run MC Dropout uncertainty estimation on test set
+7. Save all visualisation plots to outputs/plots/
+
+Note: delete outputs/dataset_X.npy, outputs/dataset_y.npy, and outputs/nn_estimator_best.pt
+to force a full regeneration with the current Config (e.g. after changing partial_traj_min/max).
 """
 import logging
 import numpy as np
@@ -48,6 +52,7 @@ from src.utils.visualization import (
     plot_3d_shot_arc,
     plot_benchmark_comparison,
     plot_parity,
+    plot_uncertainty_bands,
 )
 
 
@@ -166,6 +171,20 @@ def main() -> None:
     y_test_sub = generator.denormalise(y_test[:500])
     nn_preds   = nn_estimator.predict(X_test_sub)
     plot_parity(y_test_sub, nn_preds, save_path=PLOT_DIR / "parity_plots.png")
+
+    # MC Dropout uncertainty — mean + std over n_passes stochastic forward passes
+    logger.info("Running MC Dropout uncertainty estimation (%d passes) …", config.mc_dropout_passes)
+    unc_mean, unc_std = nn_estimator.predict_with_uncertainty(
+        X_test_sub, n_passes=config.mc_dropout_passes
+    )
+    plot_uncertainty_bands(
+        y_test_sub, unc_mean, unc_std,
+        save_path=PLOT_DIR / "uncertainty_bands.png",
+    )
+    logger.info(
+        "MC Dropout uncertainty — mean σ: speed=%.2f m/s  angle=%.2f°  spin=%.1f rpm",
+        unc_std[:, 0].mean(), unc_std[:, 1].mean(), unc_std[:, 2].mean(),
+    )
 
     # List saved plots
     saved = sorted(PLOT_DIR.glob("*.png"))
