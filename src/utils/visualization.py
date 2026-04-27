@@ -253,3 +253,58 @@ def plot_parity(
         fig.savefig(save_path, dpi=150)
         plt.close(fig)
     logger.info("Saved parity plot → %s", save_path)
+
+
+def plot_uncertainty_bands(
+    y_true: np.ndarray,
+    y_pred_mean: np.ndarray,
+    y_pred_std: np.ndarray,
+    save_path: Path,
+    param_names: list = None,
+) -> None:
+    """Parity scatter with ±1σ uncertainty bands for MC Dropout predictions.
+
+    Parameters
+    ----------
+    y_true      : (N, 3) true physical values
+    y_pred_mean : (N, 3) mean MC Dropout predictions (physical units)
+    y_pred_std  : (N, 3) std of MC Dropout predictions (physical units)
+    """
+    if param_names is None:
+        param_names = ["Launch Speed (m/s)", "Launch Angle (°)", "Spin (rpm)"]
+
+    with plt.style.context(_STYLE):
+        fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+        colors = ["#4e79a7", "#f28e2b", "#59a14f"]
+
+        for ax, col, name, color in zip(axes, range(3), param_names, colors):
+            true_col = y_true[:, col]
+            mean_col = y_pred_mean[:, col]
+            std_col  = y_pred_std[:, col]
+
+            # Sort by true value for cleaner band rendering
+            order = np.argsort(true_col)
+            t_s = true_col[order]
+            m_s = mean_col[order]
+            s_s = std_col[order]
+
+            ax.scatter(t_s, m_s, s=10, alpha=0.35, color=color, edgecolors="none", zorder=3)
+            ax.fill_between(t_s, m_s - s_s, m_s + s_s, alpha=0.25, color=color, label="±1σ")
+            lo = min(t_s.min(), (m_s - s_s).min())
+            hi = max(t_s.max(), (m_s + s_s).max())
+            ax.plot([lo, hi], [lo, hi], "k--", lw=1.2, label="Perfect")
+
+            mae = np.mean(np.abs(true_col - mean_col))
+            mean_unc = np.mean(std_col)
+            ax.set_xlabel(f"True {name}")
+            ax.set_ylabel(f"Predicted {name}")
+            ax.set_title(f"{name}\nMAE={mae:.2f}  mean σ={mean_unc:.2f}")
+            ax.legend(fontsize=8)
+
+        fig.suptitle("NN Estimator — Predictions with MC Dropout Uncertainty (±1σ)", fontsize=12)
+        fig.tight_layout()
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+        plt.close(fig)
+    logger.info("Saved uncertainty bands plot → %s", save_path)
