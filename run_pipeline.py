@@ -13,6 +13,8 @@ import logging
 import numpy as np
 from pathlib import Path
 
+from src.utils.experiment_logger import ExperimentLogger
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -75,15 +77,33 @@ def main() -> None:
     logger.info("Train %d | Val %d | Test %d", len(X_train), len(X_val), len(X_test))
 
     # ── 3. Train NNEstimator ───────────────────────────────────────────────────
+    train_logger = ExperimentLogger(
+        run_name=f"nn_e{config.epochs}_bs{config.batch_size}",
+        config=config,
+        run_type="training",
+    )
+    train_logger.log_dataset_summary(
+        n_train=len(X_train), n_val=len(X_val), n_test=len(X_test),
+        n_samples_total=config.n_samples,
+    )
+
     nn_estimator = NNEstimator(config)
     if CHECKPOINT.exists():
         logger.info("Loading existing NN checkpoint from %s", CHECKPOINT)
         nn_estimator = NNEstimator.load(str(CHECKPOINT))
     else:
         logger.info("Training NNEstimator for %d epochs …", config.epochs)
-        nn_estimator.fit(X_train, y_train, X_val, y_val)
+        nn_estimator.fit(X_train, y_train, X_val, y_val,
+                         epoch_callback=train_logger.log_epoch)
         nn_estimator.save(str(CHECKPOINT))
         logger.info("Checkpoint saved → %s", CHECKPOINT)
+
+    test_metrics = nn_estimator.evaluate_on_test(X_test, y_test)
+    train_logger.log_final_metrics(test_metrics)
+    train_logger.log_artefact(config.checkpoint_path)
+    train_logger.log_artefact("outputs/plots/training_curves.png")
+    train_run_dir = train_logger.finish()
+    logger.info("Training run saved to: %s", train_run_dir)
 
     # ── 4. Benchmark ───────────────────────────────────────────────────────────
     rng = np.random.default_rng(config.random_seed)
@@ -96,8 +116,19 @@ def main() -> None:
         for i in range(min(200, len(y_test)))
     ]
 
+    bench_logger = ExperimentLogger(
+        run_name="benchmark_noise_sweep",
+        config=config,
+        run_type="benchmark",
+    )
+    bench_logger.log_dataset_summary(0, 0, len(test_trajectories), len(test_trajectories))
+
     benchmarker = Benchmarker(PhysicsEstimator(), nn_estimator, SensorNoiseSimulator(0))
     results_df  = benchmarker.evaluate(test_trajectories)
+
+    bench_logger.log_benchmark_results(results_df)
+    bench_logger.log_artefact("outputs/plots/benchmark_comparison.png")
+    bench_logger.log_artefact("outputs/benchmark_results.csv")
 
     # ── 5. Print results table ─────────────────────────────────────────────────
     print("\n" + "=" * 72)
@@ -141,6 +172,11 @@ def main() -> None:
     logger.info("Plots saved (%d):", len(saved))
     for p in saved:
         logger.info("  %s", p)
+
+    # ── 7. Export benchmark CSV and finish benchmark logger ────────────────────
+    results_df.to_csv(OUTPUT_DIR / "benchmark_results.csv", index=False)
+    bench_run_dir = bench_logger.finish()
+    logger.info("Benchmark run saved to: %s", bench_run_dir)
 
     logger.info("Pipeline complete.")
 

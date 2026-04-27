@@ -82,13 +82,15 @@ class NNEstimator:
     # ------------------------------------------------------------------
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray,
-            X_val: np.ndarray, y_val: np.ndarray) -> "NNEstimator":
+            X_val: np.ndarray, y_val: np.ndarray,
+            epoch_callback=None) -> "NNEstimator":
         """Train the model.
 
         Parameters
         ----------
         X_train, X_val : (N, 300, 3) float32 arrays
         y_train, y_val : (N, 3) float32 arrays with normalised labels in [0,1]
+        epoch_callback : optional callable(epoch, train_loss, val_loss) called each epoch
         """
         cfg = self.config
         model = self._model
@@ -128,6 +130,8 @@ class NNEstimator:
             logger.info(
                 "Epoch %3d/%d  train=%.5f  val=%.5f", epoch + 1, cfg.epochs, train_loss, val_loss
             )
+            if epoch_callback is not None:
+                epoch_callback(epoch + 1, train_loss, val_loss)
 
         # Restore best weights
         if best_state is not None:
@@ -188,6 +192,40 @@ class NNEstimator:
         estimator._trained = True
         logger.info("NNEstimator loaded from %s", path)
         return estimator
+
+    # ------------------------------------------------------------------
+    # Evaluation
+    # ------------------------------------------------------------------
+
+    def evaluate_on_test(self, X: np.ndarray, y: np.ndarray) -> dict:
+        """Evaluate on test set, returning MAE/RMSE per parameter in physical units.
+
+        Parameters
+        ----------
+        X : (N, 300, 3) float32 array
+        y : (N, 3) float32 array with normalised labels in [0, 1]
+
+        Returns
+        -------
+        dict with keys: speed_mae, angle_mae, spin_mae,
+                        speed_rmse, angle_rmse, spin_rmse, overall_mse
+        """
+        preds = self.predict(X)          # denormalised (N, 3)
+        y_denorm = y * self._scale + self._shift  # (N, 3)
+
+        errors = preds - y_denorm
+        abs_errors = np.abs(errors)
+        sq_errors = errors ** 2
+
+        return {
+            "speed_mae":   float(abs_errors[:, 0].mean()),
+            "angle_mae":   float(abs_errors[:, 1].mean()),
+            "spin_mae":    float(abs_errors[:, 2].mean()),
+            "speed_rmse":  float(np.sqrt(sq_errors[:, 0].mean())),
+            "angle_rmse":  float(np.sqrt(sq_errors[:, 1].mean())),
+            "spin_rmse":   float(np.sqrt(sq_errors[:, 2].mean())),
+            "overall_mse": float(sq_errors.mean()),
+        }
 
     # ------------------------------------------------------------------
     # Helpers
