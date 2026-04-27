@@ -27,7 +27,7 @@ This phase starts at **Step 15**.
 - [x] Step 16 — DatasetGenerator: partial trajectory truncation in `generate()` (committed: `455d04d`)
 - [x] Step 17 — NNEstimator: add `predict_with_uncertainty()` (MC Dropout) (committed: `50adec7`)
 - [x] Step 18 — Visualization: add `plot_uncertainty_bands()` (committed: `1dc4881`)
-- [ ] Step 19 — Wire up `run_pipeline.py` + rewrite README
+- [x] Step 19 — Wire up `run_pipeline.py` + rewrite README (committed: `71355f2`)
 
 ---
 
